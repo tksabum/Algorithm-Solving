@@ -1,0 +1,244 @@
+#include <cassert>
+
+namespace BJ
+{
+	using size_t = unsigned long long;
+
+	struct Interval
+	{
+		size_t start;
+		size_t end;
+	};
+
+	template<typename _Ty>
+	struct SegmentSum
+	{
+		_Ty operator()(const _Ty& left, const _Ty& right)
+		{
+			return left + right;
+		}
+	};
+
+	template<typename _Ty>
+	struct SegmentMin
+	{
+		_Ty operator()(const _Ty& left, const _Ty& right)
+		{
+			return (left <= right) ? (left) : (right);
+		}
+	};
+
+	template<typename _Ty>
+	struct SegmentMax
+	{
+		_Ty operator()(const _Ty& left, const _Ty& right)
+		{
+			return (left >= right) ? (left) : (right);
+		}
+	};
+
+	// SegmentTree (Created on 2023.11.19)
+	template<typename _Ty, _Ty initData = 0, typename SelectionFunc = SegmentSum<_Ty>>
+	class SegmentTree
+	{
+	public:
+		class Iterator
+		{
+		public:
+			Iterator& operator=(const _Ty& data)
+			{
+				segmentTree->Insert(index, data);
+				return *this;
+			}
+
+			bool operator!=(const Iterator& right)
+			{
+				return index != right.index;
+			}
+
+			Iterator operator++()
+			{
+				return Iterator(segmentTree, index++);
+			}
+
+			const _Ty& operator*()
+			{
+				return segmentTree->_data[segmentTree->_dataPos + index];
+			}
+			
+		private:
+			Iterator(SegmentTree* segmentTree, size_t index) :
+				segmentTree(segmentTree),
+				index(index)
+			{
+				assert(index <= segmentTree->Size());
+			}
+
+		private:
+			SegmentTree* segmentTree;
+
+			size_t index;
+
+			friend SegmentTree;
+		};
+
+	public:
+		SegmentTree(size_t dataSize) :
+			_data(nullptr),
+			_size(dataSize)
+		{
+			// dataSize 보다 크거나 같은 2의 제곱수를 찾는다.
+			_capacity = 1;
+			while (_capacity < _size)
+			{
+				_capacity *= 2;
+			}
+			_dataPos = _capacity;
+
+			_data = new _Ty[_dataPos + _capacity];
+			for (size_t i = 0; i < _dataPos + _size; i++)
+			{
+				_data[i] = initData;
+			}
+
+			CalculateAll();
+		}
+
+		~SegmentTree()
+		{
+			if (_data != nullptr)
+			{
+				delete[] _data;
+				_data = nullptr;
+			}
+		}
+
+		Iterator begin()
+		{
+			return Iterator(this, 0);
+		}
+
+		Iterator end()
+		{
+			return Iterator(this, _size);
+		}
+
+		size_t Size()
+		{
+			return _size;
+		}
+
+		void Insert(size_t index, _Ty data)
+		{
+			assert(index < _size);
+			_data[_dataPos + index] = data;
+			Calculate_recursive(Parent(_dataPos + index));
+		}
+
+		/// <summary>
+		/// [start, end) 구간의 결과를 구한다. (end를 포함하지 않음)
+		/// </summary>
+		/// <param name="start"> 구간의 시작 위치 </param>
+		/// <param name="end"> 구간의 다음 위치 </param>
+		/// <returns> SelectionFunc에 의해서 계산된 결과 </returns>
+		_Ty Query(size_t start, size_t end)
+		{
+			assert(start < end);
+			return Query_recursive(start, end, 0, _capacity, root);
+		}
+
+		_Ty operator[](Interval interval)
+		{
+			return Query(interval.start, interval.end);
+		}
+
+		Iterator operator[](size_t index)
+		{
+			return Iterator(this, index);
+		}
+
+	private:
+		_Ty Query_recursive(size_t query_start, size_t query_end, size_t node_start, size_t node_end, size_t nodeNum)
+		{
+			// query구간에 node구간이 포함되는 경우
+			if (query_start <= node_start && node_end <= query_end)
+			{
+				return _data[nodeNum];
+			}
+
+			// query구간의 밖에 있는 경우
+			if (node_end <= query_start || query_end <= node_start)
+			{
+				return initData;
+			}
+
+			size_t node_mid = node_start + (node_end - node_start) / 2;
+
+			_Ty leftQuery = Query_recursive(query_start, query_end, node_start, node_end - (node_end - node_start) / 2, LeftChild(nodeNum));
+			_Ty rightQuery = Query_recursive(query_start, query_end, node_start + (node_end - node_start) / 2, node_end, RightChild(nodeNum));;
+
+			SelectionFunc selectFunc;
+
+			return selectFunc(leftQuery, rightQuery);
+		}
+
+		size_t Parent(size_t nodeNum)
+		{
+			return nodeNum / 2;
+		}
+
+		size_t LeftChild(size_t nodeNum)
+		{
+			return 2 * nodeNum;
+		}
+
+		size_t RightChild(size_t nodeNum)
+		{
+			return 2 * nodeNum + 1;
+		}
+
+		void Calculate_recursive(size_t index)
+		{
+			SelectionFunc selectFunc;
+
+			_Ty updatedData = selectFunc(_data[LeftChild(index)], _data[RightChild(index)]);
+			if (_data[index] == updatedData)
+			{
+				return;
+			}
+			else
+			{
+				_data[index] = updatedData;
+				if (index != root)
+				{
+					Calculate_recursive(Parent(index));
+				}
+			}
+		}
+
+		void CalculateAll()
+		{
+			SelectionFunc selectFunc;
+
+			size_t currentPos = _dataPos / 2;
+
+			while (currentPos != 0)
+			{
+				for (size_t i = 0; i < currentPos; i++)
+				{
+					_data[currentPos + i] = selectFunc(_data[LeftChild(currentPos + i)], _data[RightChild(currentPos + i)]);
+				}
+
+				currentPos = currentPos / 2;
+			}
+		}
+
+	private:
+		const static size_t root = 1ull;
+		_Ty* _data;
+		size_t _size;
+		size_t _capacity;
+		size_t _dataPos;
+
+	};
+}
